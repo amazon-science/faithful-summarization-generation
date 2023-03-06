@@ -62,10 +62,13 @@ class Generator(GenerationMixin):
     """
     Wrapper around GenerationMixin.
     All functions are adapted from Huggingface (https://github.com/huggingface/transformers/blob/v4.20.1/src/transformers/generation_utils.py#L844)
+
+    The difference between this and the original code is that we explicitly call the corresponding generation functions so that we can include lookahead when possible
     """
-    def __init__(self, model):
+    def __init__(self, model, lookahead=None):
         super().__init__()
         self.model = model
+        self.lookahead=lookahead
 
     @torch.no_grad()
     def generate(
@@ -853,6 +856,12 @@ class Generator(GenerationMixin):
                         else (outputs.hidden_states,)
                     )
 
+            # Lookahead: only do this up to the max_length - 1 since we need to lookahead for the top k candidates after this step
+            if self.lookahead is not None and cur_len + 1 < stopping_criteria.max_length:
+                lookahead_scores = self.lookahead.score(input_ids, next_tokens_scores, **model_kwargs)
+                next_tokens_scores = F.log_softmax(next_tokens_scores, dim=-1)
+                next_tokens_scores = next_tokens_scores + lookahead_scores
+
             # argmax
             next_tokens = torch.argmax(next_tokens_scores, dim=-1)
 
@@ -1090,6 +1099,9 @@ class Generator(GenerationMixin):
             # pre-process distribution
             next_token_scores = logits_processor(input_ids, next_token_logits)
 
+            if self.lookahead is None:
+                next_token_scores = logits_warper(input_ids, next_token_scores)
+
             # Store scores, attentions and hidden_states when required
             if return_dict_in_generate:
                 if output_scores:
@@ -1107,6 +1119,13 @@ class Generator(GenerationMixin):
                         if self.model.config.is_encoder_decoder
                         else (outputs.hidden_states,)
                     )
+
+            if self.lookahead is not None and cur_len + 1 < stopping_criteria.max_length:
+                lookahead_scores = self.lookahead.score(input_ids, next_token_scores, **model_kwargs)
+                next_token_scores = F.log_softmax(next_token_scores, dim=-1)
+                next_token_scores = next_token_scores + lookahead_scores
+                # renormalize
+                next_token_scores = logits_warper(input_ids, next_token_scores)
 
             # sample
             probs = nn.functional.softmax(next_token_scores, dim=-1)
@@ -1261,6 +1280,10 @@ class Generator(GenerationMixin):
 
             next_token_scores_processed = logits_processor(input_ids, next_token_scores)
             next_token_scores = next_token_scores_processed + beam_scores[:, None].expand_as(next_token_scores)
+
+            if self.lookahead is not None and cur_len + 1 < stopping_criteria.max_length:
+                lookahead_scores = self.lookahead.score(input_ids, next_token_scores, num_beams=beam_scorer.num_beams, **model_kwargs)
+                next_token_scores = next_token_scores + lookahead_scores
 
             # Store scores, attentions and hidden_states when required
             if return_dict_in_generate:
@@ -1470,6 +1493,16 @@ class Generator(GenerationMixin):
 
             next_token_scores_processed = logits_processor(input_ids, next_token_scores)
             next_token_scores = next_token_scores_processed + beam_scores[:, None].expand_as(next_token_scores)
+            
+            if self.lookahead is None:
+                next_token_scores = logits_warper(input_ids, next_token_scores)
+
+            if self.lookahead is not None and cur_len + 1 < stopping_criteria.max_length:
+                lookahead_scores = self.lookahead.score(input_ids, next_token_scores, num_beams=beam_scorer.num_beams, **model_kwargs)
+                next_token_scores = next_token_scores + lookahead_scores
+                
+                # renormalize
+                next_token_scores = logits_warper(input_ids, next_token_scores)
 
             # Store scores, attentions and hidden_states when required
             if return_dict_in_generate:

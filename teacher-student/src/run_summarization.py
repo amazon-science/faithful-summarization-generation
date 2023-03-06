@@ -34,6 +34,7 @@ from transformers.utils import check_min_version, is_offline_mode, send_example_
 from transformers.utils.versions import require_version
 
 from data import DataCollatorForSeq2SeqWithMultipleReferences
+from trainer import CustomTrainer
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 # check_min_version("4.21.0.dev0")
@@ -243,6 +244,13 @@ class DataTrainingArguments:
                 "needs to be the target language token (Usually it is the target language token)"
             )
         },
+    )
+
+    reference_file: Optional[str] = field(
+        default=None
+    )
+    additional_reference_file: Optional[str] = field(
+        default=None
     )
 
     def __post_init__(self):
@@ -510,7 +518,11 @@ def main():
 
         # Setup the tokenizer for targets
         labels = targets
+        additional_labels = None
         with tokenizer.as_target_tokenizer():
+            if "additional_labels" in examples:
+                additional_labels = tokenizer(examples["additional_labels"], max_length=max_target_length, padding=padding, truncation=True)
+
             labels = tokenizer(labels, max_length=max_target_length, padding=padding, truncation=True)
             
         # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
@@ -519,8 +531,21 @@ def main():
             labels["input_ids"] = [
                 [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in labels["input_ids"]
             ]
-        
+
+            if additional_labels is not None:
+                additional_labels["input_ids"] = [
+                    [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in additional_labels["input_ids"]
+                ]
+
+            if additional_candidates is not None:
+                additional_candidates["input_ids"] = [
+                    [(l if l != tokenizer.pad_token_id else -100) for l in label] for label in additional_candidates["input_ids"]
+                ]
+            
+
         model_inputs["labels"] = labels["input_ids"]
+        if additional_labels is not None:
+            model_inputs["additional_labels"] = additional_labels["input_ids"]
 
         return model_inputs
 
@@ -528,6 +553,20 @@ def main():
         if "train" not in raw_datasets:
             raise ValueError("--do_train requires a train dataset")
         train_dataset = raw_datasets["train"]
+
+        # replace reference summary with reference_file if needed
+        if data_args.reference_file is not None:
+            references = [line.strip() for line in open(data_args.reference_file)]
+            assert len(references)  == len(train_dataset[summary_column])
+            print("replacing reference...")
+            print(train_dataset[0][summary_column])
+            train_dataset = train_dataset.remove_columns(summary_column).add_column(summary_column, references)
+            print(train_dataset[0][summary_column])
+        
+        if data_args.additional_reference_file is not None:
+            references = [line.strip() for line in open(data_args.additional_reference_file)]
+            assert len(references)  == len(train_dataset[summary_column])
+            train_dataset = train_dataset.add_column("additional_labels", references)
 
         if data_args.max_train_samples is not None:
             max_train_samples = min(len(train_dataset), data_args.max_train_samples)
@@ -624,7 +663,17 @@ def main():
         return result
 
     # Initialize our Trainer
-    trainer = Seq2SeqTrainer(
+    # trainer = Seq2SeqTrainer(
+    #     model=model,
+    #     args=training_args,
+    #     train_dataset=train_dataset if training_args.do_train else None,
+    #     eval_dataset=eval_dataset if training_args.do_eval else None,
+    #     tokenizer=tokenizer,
+    #     data_collator=data_collator,
+    #     compute_metrics=compute_metrics if training_args.predict_with_generate else None,
+    # )
+
+    trainer = CustomTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset if training_args.do_train else None,
@@ -632,6 +681,7 @@ def main():
         tokenizer=tokenizer,
         data_collator=data_collator,
         compute_metrics=compute_metrics if training_args.predict_with_generate else None,
+        alpha = model_args.alpha,
     )
 
     # Training
