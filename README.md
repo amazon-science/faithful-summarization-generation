@@ -1,12 +1,6 @@
-## My Project
+# Faithfulness-Aware Decoding Strategies for Abstractive Summarization (EACL 2023)
 
-TODO: Fill this README out!
-
-Be sure to:
-
-* Change the title in this README
-* Edit your repository description on GitHub
-* Write in your license below and create a LICENSE file
+This repository contains the code for the paper "Faithfulness-Aware Decoding Strategies for Abstractive Summarization". 
 
 ## Security
 
