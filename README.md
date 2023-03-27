@@ -4,7 +4,7 @@ This repository contains the code for the paper "Faithfulness-Aware Decoding Str
 
 **Authors:** [David Wan](https://meetdavidwan.github.io), [Mengwen Liu](https://www.amazon.science/author/mengwen-liu), [Kathleen McKeown](http://www.cs.columbia.edu/~kathy), [Markus Dreyer](https://markusdreyer.org), and [Mohit Bansal](https://www.cs.unc.edu/~mbansal)
 
-**Arxiv:** SOON!
+**Arxiv:** https://arxiv.org/abs/2303.03278
 
 ## 1. Generating Summaries with Lookahead
 
